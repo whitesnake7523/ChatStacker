@@ -1,0 +1,16 @@
+[
+{
+  "modid": "ChatStacker",
+  "name": "ChatStacker",
+  "description": "1.8.9 Forge mod for Stacking Chats",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["white_snake_7523"],
+  "credits": "忙しいほど回り道がしたくなる",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]
