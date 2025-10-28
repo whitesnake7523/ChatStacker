@@ -5,10 +5,10 @@
   "description": "1.8.9 Forge mod for Stacking Chats",
   "version": "${version}",
   "mcversion": "${mcversion}",
-  "url": "",
+  "url": "https://github.com/whitesnake7523/ChatStacker",
   "updateUrl": "",
   "authorList": ["white_snake_7523"],
-  "credits": "忙しいほど回り道がしたくなる",
+  "credits": "The busier I get, the more I want to take a detour.",
   "logoFile": "",
   "screenshots": [],
   "dependencies": []
