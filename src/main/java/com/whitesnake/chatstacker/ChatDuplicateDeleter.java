@@ -17,12 +17,12 @@ import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
-
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Mod(
         modid = ChatDuplicateDeleter.MODID,
@@ -39,7 +39,6 @@ public class ChatDuplicateDeleter {
 
     public static Handler handlerInstance;
     private static Configuration config;
-
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -67,16 +66,19 @@ public class ChatDuplicateDeleter {
     public void init(FMLInitializationEvent event) {
         MinecraftForge.EVENT_BUS.register(handlerInstance);
         ClientCommandHandler.instance.registerCommand(new ExpireTimeCommand());
+        // Forge 1.8.9 では FML バス（bus()）へ登録
         FMLCommonHandler.instance().bus().register(new ConfigEventHandler());
-
     }
 
     public static class Handler {
         private final Map<String, Integer> counts = new HashMap<String, Integer>();
         private final Map<String, Integer> messageIds = new HashMap<String, Integer>();
-        private final Map<String, TimerTask> expireTasks = new HashMap<String, TimerTask>(); // ★ 追加
+        private final Map<String, TimerTask> expireTasks = new HashMap<String, TimerTask>();
         private final Timer timer = new Timer(true);
         private int expireSeconds = 30;
+
+        // 同一msでもユニークにするための連番
+        private static final AtomicInteger SEQ = new AtomicInteger(1);
 
         @SubscribeEvent
         public void onChat(ClientChatReceivedEvent event) {
@@ -87,11 +89,12 @@ public class ChatDuplicateDeleter {
             baseText = baseText.trim();
             if (baseText.length() == 0) return;
 
+            // $api で始まるメッセージは除外（標準表示に任せる）
             if (baseText.startsWith("$api")) {
-                return; // 何もせず通常処理に任せる
+                return;
             }
 
-            // カウント更新
+            // カウント更新（Java 8でも安全な書き方）
             int count = 0;
             if (counts.containsKey(baseText)) {
                 count = counts.get(baseText);
@@ -99,19 +102,23 @@ public class ChatDuplicateDeleter {
             count++;
             counts.put(baseText, count);
 
-            // ID生成（expire後は新しいIDを発行）
+            // 削除置換ID（expire後は新規発行）
             Integer idObj = messageIds.get(baseText);
             int id;
             if (idObj == null) {
-                id = (int) (System.currentTimeMillis() & 0xFFFFFFF);
+                // 時刻(ms)・連番・本文ハッシュを混ぜて衝突を極小化
+                long t = System.currentTimeMillis();
+                int next = SEQ.getAndIncrement();
+                id = (int) ((t << 12) ^ next ^ baseText.hashCode());
+                if (id == 0) id = next; // 念のため0回避
                 messageIds.put(baseText, id);
             } else {
                 id = idObj.intValue();
             }
 
+            // 既定描画をキャンセルし、自前で置換描画
             event.setCanceled(true);
 
-            // 表示メッセージ作成
             IChatComponent newComponent = event.message.createCopy();
             if (count > 1) {
                 IChatComponent countComponent = new ChatComponentText(" (" + count + ")");
@@ -121,24 +128,23 @@ public class ChatDuplicateDeleter {
             GuiNewChat chatGUI = Minecraft.getMinecraft().ingameGUI.getChatGUI();
             chatGUI.printChatMessageWithOptionalDeletion(newComponent, id);
 
-            // expireタイマー
+            // expire を最新受信時刻基準にリセット
             scheduleExpire(baseText);
         }
 
         private void scheduleExpire(final String baseText) {
-            // 古いタスクがある場合はキャンセル
+            // 古いタスクがある場合はキャンセルして差し替え
             TimerTask oldTask = expireTasks.remove(baseText);
             if (oldTask != null) {
                 oldTask.cancel();
             }
 
-            // 新しいタスクを登録
             TimerTask newTask = new TimerTask() {
                 @Override
                 public void run() {
                     counts.remove(baseText);
                     messageIds.remove(baseText);
-                    expireTasks.remove(baseText); // 自分自身も削除
+                    expireTasks.remove(baseText);
                 }
             };
 
@@ -155,18 +161,19 @@ public class ChatDuplicateDeleter {
         }
     }
 
+    // FML バスに登録するイベントハンドラは static/別クラスに
     public static class ConfigEventHandler {
 
         @SubscribeEvent
         public void onConfigChanged(ConfigChangedEvent.OnConfigChangedEvent e) {
-            // MOD IDが一致する場合のみ処理
             if (!e.modID.equals(ChatDuplicateDeleter.MODID)) return;
 
             Configuration cfg = ChatDuplicateDeleter.getConfig();
+            // まず保存（GUI側の変更を反映）、その後ロード
             if (cfg.hasChanged()) {
                 cfg.save();
             }
-            cfg.load(); // 再読込
+            cfg.load();
 
             int newExpire = cfg.getInt(
                     "expireSeconds",
@@ -177,9 +184,7 @@ public class ChatDuplicateDeleter {
                     "チャットメッセージを削除対象から外すまでの秒数（1〜3600）"
             );
 
-            // ここで反映
             ChatDuplicateDeleter.handlerInstance.setExpireSeconds(newExpire);
-
             System.out.println("[ChatStacker] ConfigChangedEvent expireSeconds: " + newExpire);
         }
     }
