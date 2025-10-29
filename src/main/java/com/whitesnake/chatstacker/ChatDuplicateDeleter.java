@@ -87,6 +87,10 @@ public class ChatDuplicateDeleter {
             baseText = baseText.trim();
             if (baseText.length() == 0) return;
 
+            if (baseText.startsWith("$api")) {
+                return; // 何もせず通常処理に任せる
+            }
+
             // カウント更新
             int count = 0;
             if (counts.containsKey(baseText)) {
